@@ -24,8 +24,7 @@ async function tick() {
   if (busy || stopped) return;
   busy = true;
   try {
-    const result = await scheduler.reconcile();
-    if (result.outcome === 'node-disabled') log('info', { event: 'node-disabled-schedule-skipped', nodeId: 66 });
+    await scheduler.reconcile();
   } catch { /* Scheduled next interval; failure already audited and alerted. */ }
   finally {
     try { await scheduler.flushAlerts(); }

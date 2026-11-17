@@ -49,12 +49,20 @@ test('live reconciliation updates only necessary coefficient and verifies', asyn
   } finally { store.close(); }
 });
 
-test('disabled node not re-enabled by schedule; manual status independent', async () => {
+test('disabled node still receives scheduled coefficient; status remains independent', async () => {
   const { scheduler, store, calls } = setup({ dryRun: false, hour: 2, status: 'disabled' });
   try {
-    assert.equal((await scheduler.reconcile()).outcome, 'node-disabled');
+    assert.equal((await scheduler.reconcile()).outcome, 'applied');
     assert.equal((await scheduler.changeNodeStatus('connecting', 123)).outcome, 'applied');
-    assert.deepEqual(calls.filter((c) => c.startsWith('PUT')), ['PUT status connecting']);
+    assert.deepEqual(calls.filter((c) => c.startsWith('PUT')), ['PUT coefficient 0', 'PUT status connecting']);
+  } finally { store.close(); }
+});
+
+test('07:00 restores coefficient even when node is disabled', async () => {
+  const { scheduler, store, calls } = setup({ dryRun: false, hour: 7, status: 'disabled', coefficient: 0 });
+  try {
+    assert.equal((await scheduler.reconcile()).outcome, 'applied');
+    assert.deepEqual(calls.filter((c) => c.startsWith('PUT')), ['PUT coefficient 1']);
   } finally { store.close(); }
 });
 

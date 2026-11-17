@@ -91,8 +91,8 @@ export class Scheduler {
         const desired = desiredCoefficient(this.clock(), this.store);
         if (!desired.enabled) return { outcome: 'paused', desired };
         const node = await this.panel.getNode();
-        // A disabled node is deliberately not reactivated by coefficient changes.
-        if (node.status === 'disabled') return { outcome: 'node-disabled', node, desired };
+        // Coefficient scheduling is independent of node enable/disable status.
+        // The partial PUT never sends a status field and cannot re-enable the node.
         const result = await this.setCoefficient(desired.coefficient, source, node);
         return { ...result, desired };
       } catch (error) {
