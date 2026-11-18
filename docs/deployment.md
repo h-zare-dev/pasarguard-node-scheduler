@@ -10,7 +10,7 @@ sudo chown "$(id -u):$(id -g)" /opt/pasarguard-node-scheduler
 git clone --branch development https://github.com/h-zare-dev/pasarguard-node-scheduler.git /opt/pasarguard-node-scheduler
 cd /opt/pasarguard-node-scheduler
 cp .env.example .env
-mkdir -p secrets data
+mkdir -p data
 sudo chown 1000:1000 data
 sudo chmod 700 data
 chmod 600 .env
@@ -18,19 +18,9 @@ chmod 600 .env
 
 If the directory already contains a project, **do not overwrite it**; inspect its branch and `git status` first. The repository is currently developed on `development`, while `main` is reserved for reviewed releases. An unmerged draft PR is not deployed to `main` automatically.
 
-## 2. Create the secrets (never paste tokens into chat)
+## 2. Configure the server-only `.env` file (never paste tokens into chat)
 
-Create a PasarGuard API key in **API Keys** with only `nodes.read` and `nodes.update`. This app does not need database, users or admin permissions. Use the **new dedicated Telegram bot token** from BotFather.
-
-```bash
-sudo touch secrets/panel_api_key secrets/telegram_bot_token
-sudo chown root:1000 secrets/panel_api_key secrets/telegram_bot_token
-sudo chmod 640 secrets/panel_api_key secrets/telegram_bot_token
-sudo nano secrets/panel_api_key
-sudo nano secrets/telegram_bot_token
-```
-
-Why `root:1000 / 0640`? The container deliberately runs as the unprivileged `node` user (UID/GID 1000). File-backed Compose secrets are bind-mounted on Linux, so the group must be readable inside the container while remaining protected from other host users.
+Create a PasarGuard API key in **API Keys** with only `nodes.read` and `nodes.update`. This app does not need database, users or admin permissions. Use the **new dedicated Telegram bot token** from BotFather. Store both values directly in `.env` on the server (the file is excluded by `.gitignore`).
 
 Find your Telegram numeric user ID using a **trusted** method, e.g. your own Telegram Bot API `getUpdates` after sending `/start`, or a reputable user-ID bot. Use only the numeric `from.id`, not a username. The bot can send notifications only after you **open its private chat and send `/start`**.
 
@@ -38,13 +28,15 @@ Edit `.env` using `nano .env`:
 
 ```dotenv
 PANEL_BASE_URL=https://YOUR-PANEL.example.com
+PANEL_API_KEY=YOUR_PASARGUARD_API_KEY
+TELEGRAM_BOT_TOKEN=YOUR_TELEGRAM_BOT_TOKEN
 TELEGRAM_ALLOWED_USER_IDS=YOUR_NUMERIC_TELEGRAM_USER_ID
 TELEGRAM_ALERT_CHAT_ID=YOUR_NUMERIC_TELEGRAM_USER_ID
 DRY_RUN=true
 PRODUCTION_WRITE_CONFIRMATION=NO
 ```
 
-Leave the target ID, name, core, coefficient values, and Tehran schedule from `.env.example` unchanged. Never put the secrets themselves in `.env`; leave their `*_FILE` settings in place. Optional: review the `PANEL_BASE_URL` TLS certificate and DNS resolution from the host before starting.
+Leave the target ID, name, core, coefficient values, and Tehran schedule from `.env.example` unchanged. Ensure `.env` is protected with `chmod 600` and is never committed or copied into logs, screenshots, or public issues. This simpler setup puts secrets into the container environment (visible to users with Docker-inspection privileges); file-backed Docker secrets offer stronger isolation if needed later. Optional: review the `PANEL_BASE_URL` TLS certificate and DNS resolution from the host before starting.
 
 Leave `SCHEDULER_IMAGE=ghcr.io/h-zare-dev/pasarguard-node-scheduler:development` on a development server. Use the `:main` tag for a separately bootstrapped main deployment. **A GitHub push publishes an image only after CI succeeds**, and the first GHCR package may be private by default. In that case either make the package public in GitHub package settings, or log in to GHCR **on the server** with a dedicated token limited to package-read access. Do not put registry tokens in GitHub source or `.env`.
 
@@ -84,7 +76,7 @@ The repository workflow has a separate deployment job that is **off by default**
 2. Create a dedicated server deploy user with Docker Compose access and restrict its SSH access as far as practical. Docker daemon access is effectively privileged; protect this SSH key like a production credential.
 3. In **GitHub repository Actions variables**, set `AUTO_DEPLOY_ENABLED=true` only when ready. For each target environment, set `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PORT` (SSH port; optional, default 22), and `DEPLOY_PATH` (absolute path starting `/opt/`).
 4. In each **GitHub environment's Secrets**, save `DEPLOY_SSH_KEY` (private deploy SSH key) and `DEPLOY_KNOWN_HOSTS` (trusted server SSH host-key line, independently verified). Never rely on `StrictHostKeyChecking=no`.
-5. Make sure the server has Git checkout of the matching branch, `.env`, both local Docker secrets, Docker Compose, and GHCR pull access. The script refuses to overwrite tracked local changes.
+5. Make sure the server has Git checkout of the matching branch, its private `.env` containing both credentials, Docker Compose, and GHCR pull access. The script refuses to overwrite tracked local changes.
 6. On the next branch push, CI will test, publish the exact SHA-tagged image, SSH into the configured server, fast-forward the matching branch, pull the same image, and recreate **only** `scheduler` with a health check. On failure it tries to restore the previously running image without touching SQLite data.
 
 **Safety interlock:** the remote script refuses deployment when `.env` does not contain exactly `DRY_RUN=true`, unless the owner deliberately creates a local `.auto-deploy-live-approved` marker after a separate live-production approval. The marker is never committed. GitHub Secrets never contain the PasarGuard key or Telegram bot token.
@@ -105,7 +97,7 @@ Key cases:
 - `Node identity mismatch`: **stop here**; do not change safety locks to make it work. Inspect ID/name/core in the panel.
 - Telegram bot does not respond: open the bot and send `/start`; check `TELEGRAM_ALLOWED_USER_IDS`. Only private chat is accepted. The Telegram token must belong to this bot and no second long-polling instance can run simultaneously.
 - `permission denied /data`: ensure `data/` is writable by UID 1000.
-- `permission denied /run/secrets/`: verify group 1000 and host file mode `0640`.
+- `Missing secret PANEL_API_KEY or TELEGRAM_BOT_TOKEN`: confirm both fields are populated in `.env`, and remove any old `*_FILE` fields from a previous setup.
 - Pending Telegram alerts persist in SQLite and retry every interval. If Telegram credentials/network are incorrect, fix them without deleting `data/`.
 - After panel connectivity resumes, the next interval reconciles the **current Tehran-time** target. Nothing auto-enables a disabled node.
 
