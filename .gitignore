@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+secrets/
+.auto-deploy-live-approved
+data/
+.coverage/
+coverage/
+node_modules/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+.DS_Store
