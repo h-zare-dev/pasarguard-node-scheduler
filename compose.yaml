@@ -1,7 +1,7 @@
 services:
   scheduler:
-    build: .
-    image: pasarguard-node-scheduler:local
+    # GH Actions builds the image. The server only pulls a tested GHCR image.
+    image: ${SCHEDULER_IMAGE:-ghcr.io/h-zare-dev/pasarguard-node-scheduler:development}
     restart: unless-stopped
     init: true
     stop_grace_period: 35s

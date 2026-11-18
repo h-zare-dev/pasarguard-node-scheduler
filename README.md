@@ -20,6 +20,17 @@ An independent **Docker + SQLite + Telegram** automation service for **PasarGuar
 - Uses only Node 24 built-ins (`node:sqlite`); no npm runtime dependencies or exposed HTTP ports.
 - Request paths are restricted to `GET /api/node/66` and `PUT /api/node/66`, with partial PUT bodies containing only `usage_coefficient` **or** `status`. Every read validates node ID, exact name and core config ID.
 
+## CI/CD and image delivery
+
+GitHub Actions runs syntax checks, unit/mock tests, Compose validation and a Docker build on every PR. **Only a successful push to `development` or `main` publishes an image** to GitHub Container Registry (GHCR):
+
+| Branch | Mutable image tag | Immutable image tag |
+| --- | --- | --- |
+| `development` | `ghcr.io/h-zare-dev/pasarguard-node-scheduler:development` | `:sha-<full-commit-sha>` |
+| `main` | `:main` and `:latest` | `:sha-<full-commit-sha>` |
+
+The server runs the image from GHCR; **it does not build from source**. Optional automatic deployment is built into the same workflow. It is **disabled by default** and requires the owner to provision a pinned SSH host key, deploy key, server variables and `AUTO_DEPLOY_ENABLED=true`. The deployment script verifies the branch and exact tested commit, pulls its immutable image tag, checks container health and attempts rollback if unhealthy. GitHub `staging`/`production` environments can enforce manual approvals.
+
 ## Getting started
 
 See **[docs/deployment.md](docs/deployment.md)** for Docker deployment, BotFather, API-key permissions, dry-run validation, backup, rollback, and the explicit live-mode approval gates.
@@ -37,7 +48,7 @@ After preparing `.env`, `secrets/`, and `data/` following the deployment guide:
 
 ```bash
 docker compose config --quiet
-docker compose build
+docker compose pull scheduler
 docker compose up -d
 docker compose logs -f --tail=100 scheduler
 ```
@@ -47,6 +58,7 @@ docker compose logs -f --tail=100 scheduler
 - Do **not** put credentials in Git, shell history, screenshots, or public issues.
 - The bot allows only configured numeric Telegram user IDs **in private chats**. Every mutating command requires a 60-second, single-use confirmation. A fresh API read verifies post-write state.
 - `DRY_RUN=false` **alone does not enable writes**. A second explicit `PRODUCTION_WRITE_CONFIRMATION` value is required; see the deployment guide. The owner must approve the switch separately.
+- GitHub Actions never receives PasarGuard or Telegram credentials. They remain in server-side Docker secret files. The CI deploy job is skipped until explicitly configured.
 - This v1 does not support any node other than 66 or any rate other than 0/1.
 - No process can guarantee an **exact second** of execution during power failures, Internet outages or PasarGuard downtime. This service attempts recovery at each interval and sends alerts. For strict service-level guarantees, use redundant monitoring and an external uptime alert.
 - SQLite and polling are single-instance: **do not scale this Compose service above one replica**. Running two instances can lead to competing updates and Telegram `getUpdates` conflicts.
@@ -65,6 +77,8 @@ src/
   main.js         # process lifecycle, healthcheck and scheduled retries
 test/             # unit and mocked API tests
 docs/deployment.md
+scripts/deploy.sh # exact-commit GHCR pull and health-checked rollout
+.github/workflows/ci.yml # tests, GHCR publish, optional SSH deploy
 compose.yaml
 Dockerfile
 ```

@@ -7,7 +7,7 @@ These are commands for an Ubuntu Linux host already running Docker Engine + Dock
 ```bash
 sudo mkdir -p /opt/pasarguard-node-scheduler
 sudo chown "$(id -u):$(id -g)" /opt/pasarguard-node-scheduler
-git clone https://github.com/h-zare-dev/pasarguard-node-scheduler.git /opt/pasarguard-node-scheduler
+git clone --branch development https://github.com/h-zare-dev/pasarguard-node-scheduler.git /opt/pasarguard-node-scheduler
 cd /opt/pasarguard-node-scheduler
 cp .env.example .env
 mkdir -p secrets data
@@ -16,7 +16,7 @@ sudo chmod 700 data
 chmod 600 .env
 ```
 
-If a user chose the cloned directory beforehand, do not overwrite it. **Until the code is merged into `main`, use the implementation branch (for example `git switch development`);** a draft PR is not deployed automatically.
+If the directory already contains a project, **do not overwrite it**; inspect its branch and `git status` first. The repository is currently developed on `development`, while `main` is reserved for reviewed releases. An unmerged draft PR is not deployed to `main` automatically.
 
 ## 2. Create the secrets (never paste tokens into chat)
 
@@ -46,11 +46,13 @@ PRODUCTION_WRITE_CONFIRMATION=NO
 
 Leave the target ID, name, core, coefficient values, and Tehran schedule from `.env.example` unchanged. Never put the secrets themselves in `.env`; leave their `*_FILE` settings in place. Optional: review the `PANEL_BASE_URL` TLS certificate and DNS resolution from the host before starting.
 
+Leave `SCHEDULER_IMAGE=ghcr.io/h-zare-dev/pasarguard-node-scheduler:development` on a development server. Use the `:main` tag for a separately bootstrapped main deployment. **A GitHub push publishes an image only after CI succeeds**, and the first GHCR package may be private by default. In that case either make the package public in GitHub package settings, or log in to GHCR **on the server** with a dedicated token limited to package-read access. Do not put registry tokens in GitHub source or `.env`.
+
 ## 3. Start / validate without production writes
 
 ```bash
 docker compose config --quiet
-docker compose build
+docker compose pull scheduler
 docker compose up -d
 docker compose ps
 docker compose logs --tail=100 scheduler
@@ -66,6 +68,28 @@ In Telegram, send `/start` and test these buttons:
 4. **Recent activity**: ensure dry-run entries appear. Check logs and `docker compose ps` for healthy status.
 
 All operations target **only** node ID 66. Failure to verify its name or core configuration is a hard stop and creates an alert. No other running PasarGuard Docker container or service is restarted by this app.
+
+The server does **not** need Node.js or a build toolchain. GitHub Actions builds the `Dockerfile` and pushes the verified image to GHCR. To update manually later:
+
+```bash
+docker compose pull scheduler
+docker compose up -d --no-deps --wait scheduler
+```
+
+### Optional: automatic deployments after each successful image publication
+
+The repository workflow has a separate deployment job that is **off by default**. To enable it **after** server bootstrap and owner approval:
+
+1. Create the GitHub `staging` environment for `development`, and `production` for `main`. Set appropriate branch restrictions and **require approval on production**.
+2. Create a dedicated server deploy user with Docker Compose access and restrict its SSH access as far as practical. Docker daemon access is effectively privileged; protect this SSH key like a production credential.
+3. In **GitHub repository Actions variables**, set `AUTO_DEPLOY_ENABLED=true` only when ready. For each target environment, set `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PORT` (SSH port; optional, default 22), and `DEPLOY_PATH` (absolute path starting `/opt/`).
+4. In each **GitHub environment's Secrets**, save `DEPLOY_SSH_KEY` (private deploy SSH key) and `DEPLOY_KNOWN_HOSTS` (trusted server SSH host-key line, independently verified). Never rely on `StrictHostKeyChecking=no`.
+5. Make sure the server has Git checkout of the matching branch, `.env`, both local Docker secrets, Docker Compose, and GHCR pull access. The script refuses to overwrite tracked local changes.
+6. On the next branch push, CI will test, publish the exact SHA-tagged image, SSH into the configured server, fast-forward the matching branch, pull the same image, and recreate **only** `scheduler` with a health check. On failure it tries to restore the previously running image without touching SQLite data.
+
+**Safety interlock:** the remote script refuses deployment when `.env` does not contain exactly `DRY_RUN=true`, unless the owner deliberately creates a local `.auto-deploy-live-approved` marker after a separate live-production approval. The marker is never committed. GitHub Secrets never contain the PasarGuard key or Telegram bot token.
+
+Note: Repository `AUTO_DEPLOY_ENABLED` gates both environments. If you want automated staging but approval-gated production, configure protection rules on GitHub's `production` environment. No server can be reached from GitHub until the SSH parameters are configured.
 
 ## 4. Monitoring / troubleshooting
 
@@ -103,7 +127,7 @@ This pauses scheduling during the backup; on restart, reconciliation catches up.
 ```bash
 cd /opt/pasarguard-node-scheduler
 git pull --ff-only
-docker compose build
+docker compose pull scheduler
 docker compose up -d
 docker compose ps
 ```
