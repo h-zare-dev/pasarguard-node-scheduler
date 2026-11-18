@@ -8,12 +8,7 @@ services:
     env_file:
       - .env
     environment:
-      PANEL_API_KEY_FILE: /run/secrets/panel_api_key
-      TELEGRAM_BOT_TOKEN_FILE: /run/secrets/telegram_bot_token
       DATABASE_PATH: /data/scheduler.sqlite
-    secrets:
-      - panel_api_key
-      - telegram_bot_token
     volumes:
       - ./data:/data
     read_only: true
@@ -26,9 +21,3 @@ services:
     pids_limit: 128
     mem_limit: 256m
     # No host ports and no Docker socket. Outbound HTTPS only.
-
-secrets:
-  panel_api_key:
-    file: ./secrets/panel_api_key
-  telegram_bot_token:
-    file: ./secrets/telegram_bot_token

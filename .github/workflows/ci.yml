@@ -28,8 +28,7 @@ jobs:
       - name: Validate production Compose model
         run: |
           cp .env.example .env
-          mkdir -p data secrets
-          touch secrets/panel_api_key secrets/telegram_bot_token
+          mkdir -p data
           docker compose config --quiet
       - name: Build Docker image
         run: docker build --tag pasarguard-node-scheduler:ci .

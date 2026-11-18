@@ -44,7 +44,7 @@ npm test
 
 ### Start in dry-run Docker mode
 
-After preparing `.env`, `secrets/`, and `data/` following the deployment guide:
+After preparing the untracked `.env` (including the two credentials) and `data/` following the deployment guide:
 
 ```bash
 docker compose config --quiet
@@ -58,7 +58,7 @@ docker compose logs -f --tail=100 scheduler
 - Do **not** put credentials in Git, shell history, screenshots, or public issues.
 - The bot allows only configured numeric Telegram user IDs **in private chats**. Every mutating command requires a 60-second, single-use confirmation. A fresh API read verifies post-write state.
 - `DRY_RUN=false` **alone does not enable writes**. A second explicit `PRODUCTION_WRITE_CONFIRMATION` value is required; see the deployment guide. The owner must approve the switch separately.
-- GitHub Actions never receives PasarGuard or Telegram credentials. They remain in server-side Docker secret files. The CI deploy job is skipped until explicitly configured.
+- GitHub Actions never receives PasarGuard or Telegram credentials. They remain only in the server's untracked `.env` file (`chmod 600`). Docker environment variables can be inspected by privileged Docker users; choose Docker secrets instead if you need stronger isolation. The CI deploy job is skipped until explicitly configured.
 - This v1 does not support any node other than 66 or any rate other than 0/1.
 - No process can guarantee an **exact second** of execution during power failures, Internet outages or PasarGuard downtime. This service attempts recovery at each interval and sends alerts. For strict service-level guarantees, use redundant monitoring and an external uptime alert.
 - SQLite and polling are single-instance: **do not scale this Compose service above one replica**. Running two instances can lead to competing updates and Telegram `getUpdates` conflicts.
