@@ -1,0 +1,12 @@
+[Unit]
+Description=Pull PasarGuard Scheduler image after merge to main
+
+[Timer]
+OnBootSec=30s
+OnCalendar=*-*-* *:*:00
+AccuracySec=5s
+Persistent=true
+Unit=pasarguard-scheduler-update.service
+
+[Install]
+WantedBy=timers.target

@@ -1,4 +1,4 @@
-# Dry-run deployment and operations
+# Deployment, automatic updates and operations
 
 These are commands for an Ubuntu Linux host already running Docker Engine + Docker Compose v2. The service is **isolated** and does not need direct access to PasarGuard's database or Docker socket. All times mean `Asia/Tehran`.
 
@@ -38,7 +38,7 @@ PRODUCTION_WRITE_CONFIRMATION=NO
 
 Leave the target ID, name, core, coefficient values, and Tehran schedule from `.env.example` unchanged. Ensure `.env` is protected with `chmod 600` and is never committed or copied into logs, screenshots, or public issues. This simpler setup puts secrets into the container environment (visible to users with Docker-inspection privileges); file-backed Docker secrets offer stronger isolation if needed later. Optional: review the `PANEL_BASE_URL` TLS certificate and DNS resolution from the host before starting.
 
-Leave `SCHEDULER_IMAGE=ghcr.io/h-zare-dev/pasarguard-node-scheduler:development` on a development server. Use the `:main` tag for a separately bootstrapped main deployment. **A GitHub push publishes an image only after CI succeeds**, and the first GHCR package may be private by default. In that case either make the package public in GitHub package settings, or log in to GHCR **on the server** with a dedicated token limited to package-read access. Do not put registry tokens in GitHub source or `.env`.
+Leave `SCHEDULER_IMAGE=ghcr.io/h-zare-dev/pasarguard-node-scheduler:development` on a development server. **For Test-Bot, which follows the reviewed `main` branch, set `SCHEDULER_IMAGE=ghcr.io/h-zare-dev/pasarguard-node-scheduler:main` in `.env`.** A GitHub push publishes an image only after CI succeeds, and the first GHCR package may be private by default. In that case either make the package public in GitHub package settings, or log in to GHCR **on the server** with a dedicated token limited to package-read access. Do not put registry tokens in GitHub source or `.env`.
 
 ## 3. Start / validate without production writes
 
@@ -68,7 +68,40 @@ docker compose pull scheduler
 docker compose up -d --no-deps --wait scheduler
 ```
 
-### Optional: automatic deployments after each successful image publication
+### Recommended: auto-deploy `main` on Test-Bot
+
+This deployment mode needs **one-time installation by the server owner**, no GitHub SSH key and no GitHub Actions deployment secrets. After you manually merge a reviewed PR into `main`, GitHub Actions first runs tests and publishes `ghcr.io/h-zare-dev/pasarguard-node-scheduler:main`. The server's systemd timer checks every minute; it refuses to deploy the previous/incorrect GHCR image while CI is still running, then updates only the scheduler container after the verified image is available. It waits for the Docker health check, attempts rollback of a failed image, and preserves `.env` and SQLite data.
+
+On Test-Bot, **after the PR containing these scripts has been merged to `main` and the Actions run is green**:
+
+```bash
+cd /opt/pasarguard-node-scheduler
+git switch main
+git pull --ff-only
+nano .env
+```
+
+Set **exactly one** `SCHEDULER_IMAGE=ghcr.io/h-zare-dev/pasarguard-node-scheduler:main` line in `.env`. Keep your existing tokens and Telegram allowlist there. Then run:
+
+```bash
+chmod 600 .env
+bash scripts/install-auto-update.sh
+systemctl list-timers --all 'pasarguard-scheduler-update.timer'
+journalctl -u pasarguard-scheduler-update.service -n 40 --no-pager
+docker compose ps
+```
+
+This installation enables the timer and immediately runs one update. `DEPLOY_OK` means an image was replaced; no message generally means nothing changed. `WAITING` means that the new GHCR image has not caught up with the merged `main` commit. `SKIPPED` means an unhealthy image was already rolled back and will not be retried until a newer image arrives. `REFUSED` means the deployment prerequisites are unsafe or incomplete. Inspect failures using `systemctl status pasarguard-scheduler-update.service --no-pager` and `journalctl -u ...`.
+
+To stop **only automatic updates** (the running scheduler continues):
+
+```bash
+systemctl disable --now pasarguard-scheduler-update.timer
+```
+
+The timer **never** changes `DRY_RUN` or the confirmation token. It simply deploys newer images with the existing server-only `.env`. Do **not** enable the alternate GitHub SSH deploy workflow for this same host.
+
+### Alternative: GitHub Actions SSH deployment (not recommended for Test-Bot)
 
 The repository workflow has a separate deployment job that is **off by default**. To enable it **after** server bootstrap and owner approval:
 
@@ -103,13 +136,15 @@ Key cases:
 
 ## 5. Backups / restore
 
-To get a consistent SQLite backup without a separate SQLite CLI, briefly stop just this scheduler container, copy its data directory, and restart:
+To get a consistent SQLite backup without a separate SQLite CLI, briefly stop just this scheduler container, copy its data directory, and restart. **If the systemd updater is installed, temporarily stop its timer first** so it cannot restart the container midway through the copy:
 
 ```bash
 cd /opt/pasarguard-node-scheduler
+systemctl stop pasarguard-scheduler-update.timer # only if installed
 docker compose stop scheduler
 sudo cp -a data "data.backup.$(date -u +%Y%m%dT%H%M%SZ)"
 docker compose up -d scheduler
+systemctl start pasarguard-scheduler-update.timer # only if installed
 ```
 
 This pauses scheduling during the backup; on restart, reconciliation catches up. An alternative is to implement an online SQLite backup command for future versions. Keep backups outside the Git repository and protect Telegram user IDs, audit entries and secrets. Check the backup directory permissions.
@@ -132,15 +167,27 @@ docker compose up -d --force-recreate scheduler
 
 **Important:** Switching to dry-run stops subsequent writes but **does not immediately restore** any already-applied nighttime coefficient. If necessary, restore coefficient `1` manually in the PasarGuard UI and check it. If you stop the service altogether, it cannot apply the scheduled 07:00 restoration; always inspect the panel after stopping.
 
-## 7. Live mode is a separate, explicitly approved future step
+## 7. Live mode after explicit owner approval
 
-**Do not perform this step until the owner explicitly approves production writes after dry-run review.** Once approved, live operation requires setting both:
+**Do not perform this step until the owner explicitly approves production writes after dry-run review.** Once approved, live operation requires setting both in the **server's untracked** `.env`:
 
 ```dotenv
 DRY_RUN=false
 PRODUCTION_WRITE_CONFIRMATION=I_APPROVE_NODE_66_WRITES
 ```
 
-Then `docker compose up -d --force-recreate scheduler` picks up the configuration. The scheduler does a read, applies only a missing `0`/`1` coefficient with a partial PUT, verifies a subsequent read, and alerts on success or failure. Telegram changes independently require another button confirmation. Switching between dry-run and live is never automated.
+Then run this **on Test-Bot**, after ensuring the image tag is `:main`:
+
+```bash
+cd /opt/pasarguard-node-scheduler
+nano .env
+# Set DRY_RUN=false and PRODUCTION_WRITE_CONFIRMATION as above, then save.
+chmod 600 .env
+docker compose up -d --no-deps --force-recreate --wait scheduler
+docker compose ps
+docker compose logs --tail=60 scheduler
+```
+
+**This changes the real PasarGuard node #66.** If the current Tehran time is 02:00–06:59, startup will attempt to set the coefficient to `0` **immediately**; otherwise it attempts to restore `1`. Before switching, inspect the node's current identity (`IDDidicate-DE`, `core_config_id=1`) and coefficient in the PasarGuard UI. After switching, use the Telegram **Status** button, inspect the PasarGuard node, and check logs for write/readback confirmation or failures. The scheduler does a read, applies only a missing `0`/`1` coefficient with a partial PUT, verifies a subsequent read, and alerts on success or failure. Telegram enable/disable actions independently require button confirmation. Switching between dry-run and live is **never** done by the updater.
 
 There are no guarantees of second-perfect execution if the server, Telegram, DNS, or PasarGuard is unavailable. Monitor panel reachability and ensure a reliable host clock (NTP). For stronger assurance, set up a separate uptime alert outside this host.

@@ -1,0 +1,11 @@
+[Unit]
+Description=Check GHCR for a reviewed PasarGuard Scheduler release
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/pasarguard-node-scheduler
+ExecStart=/bin/bash /opt/pasarguard-node-scheduler/scripts/auto-update.sh
+TimeoutStartSec=240

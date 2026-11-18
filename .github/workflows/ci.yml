@@ -24,7 +24,11 @@ jobs:
       - name: Unit and integration tests
         run: npm test
       - name: Validate deploy script
-        run: bash -n scripts/deploy.sh
+        run: |
+          bash -n scripts/deploy.sh
+          bash -n scripts/auto-update.sh
+          bash -n scripts/install-auto-update.sh
+          systemd-analyze verify systemd/pasarguard-scheduler-update.service systemd/pasarguard-scheduler-update.timer
       - name: Validate production Compose model
         run: |
           cp .env.example .env

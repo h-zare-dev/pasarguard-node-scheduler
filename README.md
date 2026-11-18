@@ -29,7 +29,9 @@ GitHub Actions runs syntax checks, unit/mock tests, Compose validation and a Doc
 | `development` | `ghcr.io/h-zare-dev/pasarguard-node-scheduler:development` | `:sha-<full-commit-sha>` |
 | `main` | `:main` and `:latest` | `:sha-<full-commit-sha>` |
 
-The server runs the image from GHCR; **it does not build from source**. Optional automatic deployment is built into the same workflow. It is **disabled by default** and requires the owner to provision a pinned SSH host key, deploy key, server variables and `AUTO_DEPLOY_ENABLED=true`. The deployment script verifies the branch and exact tested commit, pulls its immutable image tag, checks container health and attempts rollback if unhealthy. GitHub `staging`/`production` environments can enforce manual approvals.
+The server runs the image from GHCR; **it does not build from source**. For the existing Test-Bot `main` deployment, use the recommended **server-side systemd auto-updater**: every minute it fast-forwards the reviewed `main` branch, waits until GHCR publishes the image labeled with **that exact commit**, pulls it, updates only `scheduler`, checks health and attempts rollback if unhealthy. It does not need GitHub SSH/deploy secrets or touch `.env`/SQLite. See [the one-time setup](docs/deployment.md#recommended-auto-deploy-main-on-test-bot).
+
+An alternative optional SSH deployment job remains in GitHub Actions but is **disabled by default** (`AUTO_DEPLOY_ENABLED` unset). Do not enable both deployment mechanisms for the same host. The owner alone merges PRs; merging to `main` is the auto-deployment trigger.
 
 ## Getting started
 
@@ -78,6 +80,9 @@ src/
 test/             # unit and mocked API tests
 docs/deployment.md
 scripts/deploy.sh # exact-commit GHCR pull and health-checked rollout
+scripts/auto-update.sh # reviewed-main GHCR pull, revision check, health check, rollback
+scripts/install-auto-update.sh # one-time Test-Bot systemd timer installer
+systemd/          # one-minute automatic update service and timer
 .github/workflows/ci.yml # tests, GHCR publish, optional SSH deploy
 compose.yaml
 Dockerfile
